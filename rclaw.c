@@ -45,7 +45,7 @@ static inline void decode16 ( uint8_t *buffer, uint16_t value )
 	buffer[1] = (uint8_t)(value); //Low byte
 }
 
-int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const restrict data, size_t * size )
+int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restrict data, size_t * size )
 {
 	if ( fd <= 0 )
 	{
@@ -170,7 +170,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 			while ( ( length < *size ) &&
 				( length < 6 ) )
 			{
-				b[ length + 2 ] = data[ length ];
+				b[ length + 2 ] = ((uint8_t*)data)[ length ];
 				length++;
 			}
 			length += 2;
@@ -332,4 +332,42 @@ int initLib ( const char * const restrict device )
 	}
 
 	return ( open ( device, O_RDWR ) );
+}
+
+
+int __attribute__((weak)) main ( void )
+{
+	int fd = initLib ( "/dev/ttyUSB0" );
+
+	if ( fd < 0)
+	{
+		return ( __LINE__ );
+	}
+
+	char firmware[49];
+
+	if ( rclawReadWriteData ( fd, READ_FIRMWARE_VERSION, firmware, NULL ) )
+	{
+		return ( __LINE__ );
+	}
+
+	uint32_t encoder[2];
+
+	if ( rclawReadWriteData ( fd, READ_ENCODERS_COUNTS, encoder, NULL ) )
+	{
+		return ( __LINE__ );
+	}
+
+	uint32_t encoderuSpeed[2];
+
+	if ( rclawReadWriteData ( fd, READ_MOTOR_SPEEDS, encoderuSpeed, NULL ) )
+	{
+		return ( __LINE__ );
+	}
+
+	printf ( "%s\n", firmware );
+	printf ( "S1 : %dp   %dp/s\n", encoder[0], encoderuSpeed[0] );
+	printf ( "S2 : %dp   %dp/s\n", encoder[1], encoderuSpeed[1] );
+
+	return ( 0 );
 }
