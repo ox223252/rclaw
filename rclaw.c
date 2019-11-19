@@ -45,7 +45,7 @@ static inline void decode16 ( uint8_t *buffer, uint16_t value )
 	buffer[1] = (uint8_t)(value); //Low byte
 }
 
-int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const restrict data, size_t * const restrict size )
+int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const restrict data, size_t * size )
 {
 	if ( fd <= 0 )
 	{
@@ -55,6 +55,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 
 	switch ( cmd )
 	{
+		case RESETS_ENCODER_REGISTERS_FOR_M1_AND_M2:
 		case RESTORE_DEFAULTS:
 		case WRITE_SETTINGS_TO_EEPROM:
 		{
@@ -92,6 +93,22 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 			}
 			break;
 		}
+		case DRIVE_FORWARD_MOTOR_1:
+		case DRIVE_BACKWARDS_MOTOR_1:
+		case SET_MAIN_VOLTAGE_MINIMUM:
+		case SET_MAIN_VOLTAGE_MAXIMUM:
+		case DRIVE_FORWARD_MOTOR_2:
+		case DRIVE_BACKWARDS_MOTOR_2:
+		case DRIVE_MOTOR_1:
+		case DRIVE_MOTOR_2:
+		case DRIVE_FORWARD_MIXED_MODE:
+		case DRIVE_BACKWARDS_MIXED_MODE:
+		case TURN_RIGHT_MIXED_MODE:
+		case TURN_LEFT_MIXED_MODE:
+		case DRIVE_FORWARD_OR_BACKWARD:
+		case TURN_LEFT_OR_RIGHT:
+		case SET_ENCODER_1_REGISTER:
+		case SET_ENCODER_2_REGISTER:
 		case SET_MINIMUM_LOGIC_VOLTAGE_LEVEL:
 		case SET_MAXIMUM_LOGIC_VOLTAGE_LEVEL:
 		case SET_VELOCITY_PID_CONSTANTS_FOR_M1:
@@ -192,6 +209,12 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 			}
 			break;
 		}
+		case READ_ENCODER_COUNT_VALUE_FOR_M1:
+		case READ_ENCODER_COUNT_VALUE_FOR_M2:
+		case READ_M1_SPEED_IN_ENCODER_COUNTS_PER_SECOND:
+		case READ_M2_SPEED_IN_ENCODER_COUNTS_PER_SECOND:
+		case READ_CURRENT_M1_RAW_SPEED:
+		case READ_CURRENT_M2_RAW_SPEED:
 		case READ_FIRMWARE_VERSION:
 		case READ_MAIN_BATTERY_VOLTAGE:
 		case READ_LOGIC_BATTERY_VOLTAGE:
@@ -206,6 +229,8 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 		case READ_MOTOR_CURRENTS:
 		case READ_S3_S4_AND_S5_MODES:
 		case READ_DEADBAND_FOR_RC_ANALOG_CONTROLS:
+		case READ_ENCODERS_COUNTS:
+		case READ_MOTOR_SPEEDS:
 		case READ_DEFAULT_DUTY_CYCLE_ACCELERATIONS:
 		case READ_TEMPERATURE:
 		case READ_TEMPERATURE_2:
@@ -233,6 +258,13 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, uint8_t * const re
 			FD_ZERO( &rfds );
 			FD_SET( fd, &rfds ); // watch fd, wait something incomming
 
+			size_t lSize = 0;
+			if ( !size )
+			{
+				size = &lSize;
+			}
+
+			*size = 0;
 			int rt = select( ( fd + 1 ), &rfds, NULL, NULL, &tv );
 
 			if ( rt == -1 )
