@@ -247,6 +247,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 			uint8_t b[ 2 ];
 			b[ 0 ] = 0x80;
 			b[ 1 ] = cmd;
+
 			if ( write ( fd, b, 2 ) != 2 )
 			{
 				return ( __LINE__ );
@@ -283,20 +284,12 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 					return ( __LINE__ );
 				}
 
-				*size -= 2;
-
-				if ( *(uint16_t*)(&in[ *size ]) != crc16( in, ( *size ) ) )
-				{
-					printf ( "CRC16 error\n");
-					errno = EPROTO;
-					return ( __LINE__ );
-				}
-
 				if ( cmd == READ_FIRMWARE_VERSION )
 				{
 					if ( data )
 					{
 						strcpy ( (char*)data, (char*)in );
+						((char*)data)[ *size - 1 ] = 0; // remove the last '\n' in the returned string
 					}
 					else
 					{
@@ -305,13 +298,27 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 				}
 				else if ( data )
 				{
+					*size -= 2;
+
+					if ( *(uint16_t*)(&in[ *size ]) != crc16( in, ( *size ) ) )
+					{
+						printf ( "CRC16 error\n");
+						errno = EPROTO;
+						return ( __LINE__ );
+					}
+
 					memcpy ( data, in, *size );
+				}
+				else
+				{
+					errno = EINVAL;
+					return ( __LINE__ );
 				}
 			}
 			else
 			{ // no data available
 				errno = ENODATA;
-				return ( 0 );
+				return ( -1 );
 			}
 			break;
 		}
@@ -334,40 +341,126 @@ int initLib ( const char * const restrict device )
 	return ( open ( device, O_RDWR ) );
 }
 
-
 int __attribute__((weak)) main ( void )
 {
-	int fd = initLib ( "/dev/ttyUSB0" );
+	int fd = initLib ( "/dev/ttyACM0" );
+	int rt = 0;
 
-	if ( fd < 0)
+	if ( fd < 0 )
 	{
+		printf ( "error : %d\n", __LINE__ );
 		return ( __LINE__ );
 	}
 
-	char firmware[49];
+	char firmware[49] = { 0 };
 
-	if ( rclawReadWriteData ( fd, READ_FIRMWARE_VERSION, firmware, NULL ) )
+	rt = rclawReadWriteData ( fd, READ_FIRMWARE_VERSION, firmware, NULL );
+	switch ( rt )
 	{
-		return ( __LINE__ );
+		case -1:
+		{
+			printf ( "Firmware : no data available\n" );
+			break;
+		}
+		case 0:
+		{
+			printf ( "%s\n", firmware );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
 	}
 
-	uint32_t encoder[2];
+	short voltage = -1;
 
-	if ( rclawReadWriteData ( fd, READ_ENCODERS_COUNTS, encoder, NULL ) )
+	rt = rclawReadWriteData ( fd, READ_MAIN_BATTERY_VOLTAGE, &voltage, NULL );
+	switch ( rt )
 	{
-		return ( __LINE__ );
+		case -1:
+		{
+			printf ( "Voltage      : no data available\n" );
+			break;
+		}
+		case 0:
+		{
+			printf ( "%.2fV\n", (float)voltage/10.0 );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
 	}
 
-	uint32_t encoderuSpeed[2];
+	uint8_t modes[3];
 
-	if ( rclawReadWriteData ( fd, READ_MOTOR_SPEEDS, encoderuSpeed, NULL ) )
+	rt = rclawReadWriteData ( fd, READ_S3_S4_AND_S5_MODES, modes, NULL );
+	switch ( rt )
 	{
-		return ( __LINE__ );
+		case -1:
+		{
+			printf ( "modes        : no data available\n" );
+			break;
+		}
+		case 0:
+		{
+			printf ( "modes        : %x %x %xV\n", modes[0], modes[1], modes[2] );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
 	}
 
-	printf ( "%s\n", firmware );
-	printf ( "S1 : %dp   %dp/s\n", encoder[0], encoderuSpeed[0] );
-	printf ( "S2 : %dp   %dp/s\n", encoder[1], encoderuSpeed[1] );
+	uint32_t encoder[2] = { 1, 1 };
+
+	rt = rclawReadWriteData ( fd, READ_ENCODERS_COUNTS, encoder, NULL );
+	switch ( rt )
+	{
+		case -1:
+		{
+			printf ( "Encoder      : no data available\n" );
+			break;
+		}
+		case 0:
+		{
+			printf ( "Encoder      : %dp   %dp/s\n", encoder[0], encoder[1] );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
+	}
+
+	uint32_t encoderuSpeed[2] = { 1, 1 };
+
+	rt = rclawReadWriteData ( fd, READ_MOTOR_SPEEDS, encoderuSpeed, NULL );
+	switch ( rt )
+	{
+		case -1:
+		{
+			printf ( "EncoderSpeed : no data available\n" );
+			break;
+		}
+		case 0:
+		{
+			printf ( "EncoderSpeed : %dp   %dp/s\n", encoderuSpeed[0], encoderuSpeed[1] );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
+	}
 
 	return ( 0 );
 }
