@@ -244,7 +244,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 		case READ_M2_MAXIMUM_CURRENT:
 		case READ_PWM_MODE:
 		{
-			uint8_t b[ 2 ];
+			uint8_t b[ 50 ];
 			b[ 0 ] = 0x80;
 			b[ 1 ] = cmd;
 
@@ -274,9 +274,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 			}
 			else if ( rt )
 			{ // data avilable
-				uint8_t in[ 48 ];
-
-				*size = read ( fd, in, 48 );
+				*size = read ( fd, b+2, 48 );
 
 				if ( *size < 2 )
 				{
@@ -298,16 +296,16 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 				}
 				else if ( data )
 				{
-					*size -= 2;
-
-					if ( *(uint16_t*)(&in[ *size ]) != crc16( in, ( *size ) ) )
+					if ( *(uint16_t*)(&b[ *size ]) != crc16( b, ( *size ) ) )
 					{
 						printf ( "CRC16 error\n");
 						errno = EPROTO;
 						return ( __LINE__ );
 					}
 
-					memcpy ( data, in, *size );
+					*size -= 2;
+
+					memcpy ( data, in+2, *size );
 				}
 				else
 				{
