@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <endian.h>
 
 #include "rclaw.h"
 
@@ -45,7 +46,7 @@ static inline void decode16 ( uint8_t *buffer, uint16_t value )
 	buffer[1] = (uint8_t)(value); //Low byte
 }
 
-int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restrict data, size_t * size )
+int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restrict data, size_t size )
 {
 	if ( fd <= 0 )
 	{
@@ -155,20 +156,18 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 		case SET_PWM_MODE:
 		{
 			if ( !data ||
-				!size ||
-				!*size )
+				!size )
 			{
 				errno = EINVAL;
 				return ( __LINE__ );
 			}
 
-			uint8_t b[ *size + 4 ];
+			uint8_t b[ size + 4 ];
 			b[ 0 ] = 0x80;
 			b[ 1 ] = cmd;
 
 			size_t length = 0;
-			while ( ( length < *size ) &&
-				( length < 6 ) )
+			while ( length < size )
 			{
 				b[ length + 2 ] = ((uint8_t*)data)[ length ];
 				length++;
@@ -176,8 +175,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 			length += 2;
 
 			uint16_t r = crc16( b, length );
-			b[ length ] = (uint8_t)(r >> 8);
-			b[ length+1 ] = (uint8_t)(r);
+			*((uint16_t*)&b[ length ]) = htobe16( r );
 
 			if ( write ( fd, b, length ) != (int)( length ) )
 			{
@@ -244,7 +242,7 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 		case READ_M2_MAXIMUM_CURRENT:
 		case READ_PWM_MODE:
 		{
-			uint8_t b[ 50 ];
+			uint8_t b[ 50 ] = {0};
 			b[ 0 ] = 0x80;
 			b[ 1 ] = cmd;
 
@@ -253,70 +251,48 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 				return ( __LINE__ );
 			}
 
-			struct timeval tv = { .tv_sec = 0, .tv_usec = 10000 };
 
 			fd_set rfds;
 			FD_ZERO( &rfds );
 			FD_SET( fd, &rfds ); // watch fd, wait something incomming
 
-			size_t lSize = 0;
-			if ( !size )
+			// data avilable
+			size = read ( fd, b+2, size + 2 );
+
+			if ( size < 2 )
 			{
-				size = &lSize;
-			}
-
-			*size = 0;
-			int rt = select( ( fd + 1 ), &rfds, NULL, NULL, &tv );
-
-			if ( rt == -1 )
-			{ // error
+				errno = EPROTO;
 				return ( __LINE__ );
 			}
-			else if ( rt )
-			{ // data avilable
-				*size = read ( fd, b+2, 48 );
 
-				if ( *size < 2 )
+			if ( cmd == READ_FIRMWARE_VERSION )
+			{
+				printf ( "-> %d\n", size );
+				if ( data )
 				{
+					strcpy ( (char*)data, b+2 );
+					((char*)data)[ strlen(data) - 1 ] = 0; // remove the last '\n' in the returned string
+				}
+				else
+				{
+					printf ( "%s\n", b+2 );
+				}
+			}
+			else if ( data )
+			{
+				if ( be16toh(*(uint16_t*)(&b[ size + 2 ])) != crc16( b, ( size + 2 ) ) )
+				{
+					printf ( "CRC16 error\n");
 					errno = EPROTO;
 					return ( __LINE__ );
 				}
 
-				if ( cmd == READ_FIRMWARE_VERSION )
-				{
-					if ( data )
-					{
-						strcpy ( (char*)data, (char*)in );
-						((char*)data)[ *size - 1 ] = 0; // remove the last '\n' in the returned string
-					}
-					else
-					{
-						printf ( "%s\n", in );
-					}
-				}
-				else if ( data )
-				{
-					if ( *(uint16_t*)(&b[ *size ]) != crc16( b, ( *size ) ) )
-					{
-						printf ( "CRC16 error\n");
-						errno = EPROTO;
-						return ( __LINE__ );
-					}
-
-					*size -= 2;
-
-					memcpy ( data, in+2, *size );
-				}
-				else
-				{
-					errno = EINVAL;
-					return ( __LINE__ );
-				}
+				memcpy ( data, b+2, size );
 			}
 			else
-			{ // no data available
-				errno = ENODATA;
-				return ( -1 );
+			{
+				errno = EINVAL;
+				return ( __LINE__ );
 			}
 			break;
 		}
@@ -339,10 +315,32 @@ int initLib ( const char * const restrict device )
 	return ( open ( device, O_RDWR ) );
 }
 
+int rclawReadBattery ( int fd, float *v )
+{
+	if ( !v )
+	{
+		errno = EINVAL;
+		return ( __LINE__ );
+	}
+
+	uint16_t voltage = 0;
+	int rt = rclawReadWriteData ( fd, READ_MAIN_BATTERY_VOLTAGE, &voltage, 2 );
+	if ( rt )
+	{
+		return ( rt );
+	}
+
+	voltage = be16toh ( voltage );
+	*v = (float)voltage/10.0;
+
+	return ( 0 );
+}
+
 int __attribute__((weak)) main ( void )
 {
 	int fd = initLib ( "/dev/ttyACM0" );
 	int rt = 0;
+	int dataSize = 0;
 
 	if ( fd < 0 )
 	{
@@ -352,7 +350,7 @@ int __attribute__((weak)) main ( void )
 
 	char firmware[49] = { 0 };
 
-	rt = rclawReadWriteData ( fd, READ_FIRMWARE_VERSION, firmware, NULL );
+	rt = rclawReadWriteData ( fd, READ_FIRMWARE_VERSION, firmware, 48 );
 	switch ( rt )
 	{
 		case -1:
@@ -372,10 +370,9 @@ int __attribute__((weak)) main ( void )
 		}
 	}
 
-	short voltage = -1;
 
-	rt = rclawReadWriteData ( fd, READ_MAIN_BATTERY_VOLTAGE, &voltage, NULL );
-	switch ( rt )
+	float voltage = -1;
+	switch ( rclawReadBattery ( fd, &voltage ) )
 	{
 		case -1:
 		{
@@ -384,7 +381,7 @@ int __attribute__((weak)) main ( void )
 		}
 		case 0:
 		{
-			printf ( "%.2fV\n", (float)voltage/10.0 );
+			printf ( "%.2fV\n", (float)voltage );
 			break;
 		}
 		default:
@@ -396,7 +393,7 @@ int __attribute__((weak)) main ( void )
 
 	uint8_t modes[3];
 
-	rt = rclawReadWriteData ( fd, READ_S3_S4_AND_S5_MODES, modes, NULL );
+	rt = rclawReadWriteData ( fd, READ_S3_S4_AND_S5_MODES, modes, 3 );
 	switch ( rt )
 	{
 		case -1:
@@ -418,7 +415,7 @@ int __attribute__((weak)) main ( void )
 
 	uint32_t encoder[2] = { 1, 1 };
 
-	rt = rclawReadWriteData ( fd, READ_ENCODERS_COUNTS, encoder, NULL );
+	rt = rclawReadWriteData ( fd, READ_ENCODERS_COUNTS, encoder, 2 * sizeof ( uint32_t ) );
 	switch ( rt )
 	{
 		case -1:
@@ -428,7 +425,7 @@ int __attribute__((weak)) main ( void )
 		}
 		case 0:
 		{
-			printf ( "Encoder      : %dp   %dp/s\n", encoder[0], encoder[1] );
+			printf ( "Encoder      : %dp   %dp\n", be32toh ( encoder[0] ), be32toh ( encoder[1] ) );
 			break;
 		}
 		default:
@@ -440,7 +437,7 @@ int __attribute__((weak)) main ( void )
 
 	uint32_t encoderuSpeed[2] = { 1, 1 };
 
-	rt = rclawReadWriteData ( fd, READ_MOTOR_SPEEDS, encoderuSpeed, NULL );
+	rt = rclawReadWriteData ( fd, READ_MOTOR_SPEEDS, encoderuSpeed, 2 * sizeof ( uint32_t ) );
 	switch ( rt )
 	{
 		case -1:
@@ -450,7 +447,7 @@ int __attribute__((weak)) main ( void )
 		}
 		case 0:
 		{
-			printf ( "EncoderSpeed : %dp   %dp/s\n", encoderuSpeed[0], encoderuSpeed[1] );
+			printf ( "EncoderSpeed : %dp/s   %dp/s\n", be32toh ( encoderuSpeed[0] ), be32toh ( encoderuSpeed[1] ) );
 			break;
 		}
 		default:

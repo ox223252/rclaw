@@ -122,7 +122,7 @@ typedef enum
 	READ_PWM_MODE = 149
 }PACKAGE_CMD;
 
-int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restrict data, size_t * const restrict size );
+int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restrict data, size_t const size );
 int initLib ( const char * const restrict device );
 
 #endif
