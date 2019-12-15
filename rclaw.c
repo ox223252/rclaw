@@ -177,35 +177,16 @@ int rclawReadWriteData ( const int fd, const PACKAGE_CMD cmd, void * const restr
 			uint16_t r = crc16( b, length );
 			*((uint16_t*)&b[ length ]) = htobe16( r );
 
+			length += 2;
+
 			if ( write ( fd, b, length ) != (int)( length ) )
 			{
 				return ( __LINE__ );
 			}
 
-			struct timeval tv = { .tv_sec = 0, .tv_usec = 10000 };
-
-			fd_set rfds;
-			FD_ZERO( &rfds );
-			FD_SET( fd, &rfds ); // watch fd, wait something incomming
-
-			int rt = select( ( fd + 1 ), &rfds, NULL, NULL, &tv );
-
-			if ( rt == -1 )
-			{ // error
-				return ( __LINE__ );
-			}
-			else if ( rt )
-			{ // data avilable
-				uint8_t in[ 48 ];
-
-				read ( fd, in, 48 );
-			}
-			else
-			{ // no data available
-				errno = ENODATA;
-				return ( 0 );
-			}
-			break;
+			uint8_t in;
+			read ( fd, &in, 1 );
+			return ( 0 );
 		}
 		case READ_ENCODER_COUNT_VALUE_FOR_M1:
 		case READ_ENCODER_COUNT_VALUE_FOR_M2:
@@ -448,6 +429,51 @@ int __attribute__((weak)) main ( void )
 		case 0:
 		{
 			printf ( "EncoderSpeed : %dp/s   %dp/s\n", be32toh ( encoderuSpeed[0] ), be32toh ( encoderuSpeed[1] ) );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
+	}
+
+	printf ( "SET PART\n" );
+	fflush ( NULL );
+
+	int32_t buffer[ 3 ];
+	buffer[ 0 ] = htobe32 ( 1000 );
+	buffer[ 1 ] = htobe32 ( 1000 );
+	buffer[ 2 ] = htobe32 ( -1000 );
+
+	rt = rclawReadWriteData ( fd, DRIVE_M1_M2_WITH_SIGNED_SPEED_AND_ACCELERATION, buffer, 3 * sizeof ( int32_t ) );
+	switch ( rt )
+	{
+		case 0:
+		{
+			printf ( "ok\n" );
+			break;
+		}
+		default:
+		{
+			printf ( "error : %d\n", __LINE__ );
+			return ( __LINE__ );
+		}
+	}
+
+	fflush ( NULL );
+
+	sleep ( 3 );
+
+	buffer[ 1 ] = htobe32 ( 0 );
+	buffer[ 2 ] = htobe32 ( 0 );
+
+	rt = rclawReadWriteData ( fd, DRIVE_M1_M2_WITH_SIGNED_SPEED_AND_ACCELERATION, buffer, 3 * sizeof ( int32_t ) );
+	switch ( rt )
+	{
+		case 0:
+		{
+			printf ( "ok\n" );
 			break;
 		}
 		default:
